@@ -29,7 +29,6 @@ $settings = Get-Settings
 
 # Initialize a variable to track the last known GPU preference to prevent redundant restarts
 $global:LastKnownGpuPreference = $null
-
 # Function to send messages to a named pipe
 function Send-PipeMessage {
     param (
@@ -336,6 +335,11 @@ function Start-Monitoring {
         }
     }
 }
+Start-Logging
 
 # Start the monitoring process
 Start-Monitoring
+
+Stop-Logging
+
+Remove-OldLogs
