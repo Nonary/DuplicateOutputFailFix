@@ -134,7 +134,7 @@ function Get-GpuPreference {
 function Get-CurrentGpuPreference {
     # Define necessary paths
     $ddprobePath = Join-Path $settings.sunshineDirectory "tools\ddprobe.exe" 
-    $sunshineExePath =  Join-Path $settings.sunshineDirectory "Sunshine.exe"
+    $sunshineExePath = Join-Path $settings.sunshineDirectory "Sunshine.exe"
     
     # Validate paths
     if (-Not (Test-Path -Path $ddprobePath)) {
@@ -182,13 +182,10 @@ function Get-CurrentGpuPreference {
     return $null
 }
 
-# Function to execute when a client connects (detected via log)
-function Handle-ClientConnection {
-    Handle-SetGpuPreference
-}
+
 
 # Refactored Function: Handles GPU preference changes
-function Handle-SetGpuPreference {
+function Verify-GPUPreference {
     $currentGpuPreference = Get-CurrentGpuPreference
 
     if ($currentGpuPreference -ne $null) {
@@ -288,13 +285,14 @@ function Process-LogLine {
     )
 
     # Define patterns to detect relevant log entries
-    $setGpuPreferencePattern = "Set GPU preference"
     $duplicateOutputErrorPattern = "Error: DuplicateOutput\(\) test failed"
+    $clientConnectedPattern = "Client Connected"
 
     # Check for "Set GPU preference"
-    if ($line -match $setGpuPreferencePattern) {
-        Handle-SetGpuPreference
+    if ($line -match $clientConnectedPattern) {
+        Verify-GPUPreference
     }
+    
 
     # Check for duplicate output error
     if ($line -match $duplicateOutputErrorPattern) {
