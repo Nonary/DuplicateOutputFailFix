@@ -102,25 +102,35 @@ function Get-GPUCount {
 
 # Function to retrieve GpuPreference from the registry
 function Get-GpuPreference {
-    param (
-        [string]$exePath
-    )
+
+    $exePath = Join-Path $settings.sunshineDirectory "Sunshine.exe"
+    Write-Host "Searching for GPU preference of: $exePath"
 
     $registryPath = "Registry::HKEY_USERS\S-1-5-18\Software\Microsoft\DirectX\UserGpuPreferences"
 
     try {
-        # Retrieve the GpuPreference value
-        $gpuPreferenceRaw = Get-ItemProperty -Path $registryPath -Name $exePath -ErrorAction Stop
-        $gpuPreferenceValue = $gpuPreferenceRaw.$exePath
+        $properties = Get-ItemProperty -Path $registryPath -ErrorAction Stop
 
-        # Extract the integer value from "GpuPreference={integer}"
-        if ($gpuPreferenceValue -match "GpuPreference=(\d+)") {
-            $gpuPreferenceInt = [int]$matches[1]
-            Write-Host "Extracted GpuPreference: $gpuPreferenceInt"
-            return $gpuPreferenceInt
+        # Find the property that matches the exePath (case-insensitive)
+        $matchedProperty = $properties.PSObject.Properties | Where-Object {
+            $_.Name -ieq $exePath
+        }
+
+        if ($matchedProperty) {
+            $gpuPreferenceValue = $matchedProperty.Value
+
+            if ($gpuPreferenceValue -match "GpuPreference=(\d+)") {
+                $gpuPreferenceInt = [int]$matches[1]
+                Write-Host "Configured GpuPreference: $gpuPreferenceInt"
+                return $gpuPreferenceInt
+            }
+            else {
+                Write-Warning "GpuPreference format is unexpected: $gpuPreferenceValue"
+                return $null
+            }
         }
         else {
-            Write-Warning "GpuPreference format is unexpected: $gpuPreferenceValue"
+            Write-Warning "Property '$exePath' does not exist in registry path."
             return $null
         }
     }
@@ -129,6 +139,7 @@ function Get-GpuPreference {
         return $null
     }
 }
+
 
 # New Function: Retrieves the current GPU preference by running ddprobe.exe
 function Get-CurrentGpuPreference {
@@ -160,17 +171,7 @@ function Get-CurrentGpuPreference {
     
         if ($exitCode -eq 0) {
             # No output indicates success
-            # Retrieve the GpuPreference from the registry
-            $currentGpuPreference = Get-GpuPreference -exePath "$sunshineExePath"
-    
-            if ($currentGpuPreference -ne $null) {
-                Write-Host "Current GpuPreference: $currentGpuPreference"
-                return $currentGpuPreference
-            }
-            else {
-                Write-Warning "Could not retrieve current GpuPreference."
-                return $null
-            }
+            return $i
         }
         else {
             # Any output indicates failure
@@ -186,20 +187,19 @@ function Get-CurrentGpuPreference {
 
 # Refactored Function: Handles GPU preference changes
 function Verify-GPUPreference {
+    $sunshineGPUPreference = Get-GpuPreference 
     $currentGpuPreference = Get-CurrentGpuPreference
 
-    if ($currentGpuPreference -ne $null) {
-        if ($currentGpuPreference -ne $global:LastKnownGpuPreference) {
-            Write-Host "GpuPreference has changed from $global:LastKnownGpuPreference to $currentGpuPreference."
-
-            # Update the last known GPU preference
-            $global:LastKnownGpuPreference = $currentGpuPreference
+    if ($null -ne $sunshineGPUPreference) {
+        if ($currentGpuPreference -ne $sunshineGPUPreference) {
+            Write-Host "GpuPreference has changed from $sunshineGPUPreference to $currentGpuPreference."
 
             # Send message to MonitorSwapper
             Send-PipeMessage -pipeName "MonitorSwapper" -message "GPUAdapterChange"
 
             # Restart SunshineService
             Restart-SunshineService
+            return $true
         }
         else {
             Write-Host "GpuPreference ($currentGpuPreference) matches the last known value. No action needed."
@@ -208,6 +208,8 @@ function Verify-GPUPreference {
     else {
         Write-Warning "Could not determine the current GPU preference. Skipping action."
     }
+
+    return $false
 }
 
 # Function to handle specific error detection and service restart
@@ -290,7 +292,15 @@ function Process-LogLine {
 
     # Check for "Set GPU preference"
     if ($line -match $clientConnectedPattern) {
-        Verify-GPUPreference
+        for ($i = 0; $i -lt 10; $i++) {
+            $applied = Verify-GPUPreference
+
+            if($applied){
+                break;
+            }
+
+            Start-Sleep -Seconds 1
+        }
     }
     
 
@@ -311,16 +321,6 @@ function Start-Monitoring {
 
     $logFilePath = Join-Path -Path $sunshineDirectory -ChildPath "config\sunshine.log"
 
-    # Initialize the last known GPU preference
-    Write-Host "Initializing last known GPU preference..."
-    $global:LastKnownGpuPreference = Get-CurrentGpuPreference
-
-    if ($null -eq $global:LastKnownGpuPreference) {
-        Write-Warning "Initial GPU preference could not be determined. Proceeding with null value."
-    }
-    else {
-        Write-Host "Initial GPU preference set to: $global:LastKnownGpuPreference"
-    }
 
     # Start monitoring the log file in a loop to ensure continuous monitoring
     while ($true) {
