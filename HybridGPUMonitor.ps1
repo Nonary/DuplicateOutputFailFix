@@ -190,7 +190,7 @@ function Verify-GPUPreference {
     $sunshineGPUPreference = Get-GpuPreference 
     $currentGpuPreference = Get-CurrentGpuPreference
 
-    if ($null -ne $sunshineGPUPreference) {
+    if ($null -ne $sunshineGPUPreference -and $null -ne $currentGpuPreference) {
         if ($currentGpuPreference -ne $sunshineGPUPreference) {
             Write-Host "GpuPreference has changed from $sunshineGPUPreference to $currentGpuPreference."
 
@@ -202,8 +202,11 @@ function Verify-GPUPreference {
             return $true
         }
         else {
+        
             Write-Host "GpuPreference ($currentGpuPreference) matches the last known value. No action needed."
+            return $true
         }
+
     }
     else {
         Write-Warning "Could not determine the current GPU preference. Skipping action."
@@ -214,11 +217,7 @@ function Verify-GPUPreference {
 
 # Function to handle specific error detection and service restart
 function Handle-DuplicateOutputError {
-    Write-Host "Detected 'Error: DuplicateOutput() test failed' in log."
-    Write-Host "Error condition met. Restarting SunshineService."
-
-    # Restart SunshineService
-    Restart-SunshineService
+    Write-Host "Detected 'Error: DuplicateOutput() test failed' in log, user is probably at the lock screen."
 }
 
 function Monitor-LogFile {
@@ -292,10 +291,10 @@ function Process-LogLine {
 
     # Check for "Set GPU preference"
     if ($line -match $clientConnectedPattern) {
-        for ($i = 0; $i -lt 10; $i++) {
+        for ($i = 0; $i -lt 180; $i++) {
             $applied = Verify-GPUPreference
 
-            if($applied){
+            if ($applied) {
                 break;
             }
 
