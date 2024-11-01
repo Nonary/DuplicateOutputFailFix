@@ -1,155 +1,172 @@
 ## Overview
 
-Laptops with hybrid GPU setups dynamically switch between the integrated GPU (iGPU) and the dedicated GPU (dGPU) to balance performance and energy consumption. While this setup works well for most applications, streaming software like **Sunshine** can encounter issues if the GPUs used for display and streaming tasks don’t align.
+If you're using **Sunshine** to stream from a laptop that has both an integrated GPU (iGPU) and a dedicated GPU (dGPU), you might encounter issues where streaming breaks or performance drops. This happens because the system switches between the two GPUs to balance performance and battery life, but Sunshine doesn't handle these switches well due to limitations with **DXGI** (DirectX Graphics Infrastructure).
 
-This guide addresses these complications and provides a comprehensive, step-by-step solution to ensure that **Sunshine** consistently uses the correct GPU for streaming, preventing common issues such as streaming breaks and performance degradation.
+This guide will help you set up your laptop so that Sunshine always uses the correct GPU for streaming, ensuring smooth performance and preventing common issues like black screens or error messages.
+
+---
 
 ## The Problem
 
-### Hybrid GPU Dynamics
+### How Hybrid GPUs Work
 
-Modern laptops often feature both an integrated GPU (iGPU) and a dedicated GPU (dGPU). The operating system (OS) optimizes energy usage by dynamically assigning tasks between these GPUs based on current demands. While this approach enhances efficiency, it introduces complexities for certain applications, particularly streaming software like **Sunshine**.
+- **Integrated GPU (iGPU):** Built into your laptop's processor (like Intel HD Graphics), it's energy-efficient and handles everyday tasks.
+- **Dedicated GPU (dGPU):** A separate graphics card (like NVIDIA or AMD), it's more powerful and handles demanding tasks like gaming or streaming.
 
-### Specific Issues with Sunshine
+Your laptop switches between the iGPU and dGPU to save energy or boost performance as needed.
 
-**Sunshine** relies on **DXGI** (DirectX Graphics Infrastructure) for capturing video. However, **DXGI** imposes restrictions when dealing with hybrid GPU setups:
+### Issues with Sunshine and DXGI
 
-- **GPU Mismatch**: If your monitor is connected to a different GPU than the one **Sunshine** uses for streaming, you may experience:
-  - **No Video Received**: Streams may fail to capture any video output.
-  - **`Duplicate Output Failed` Errors**: Errors indicating that the output duplication for streaming has failed.
+Sunshine uses DXGI to capture your screen, but DXGI has limitations:
 
-- **Windows API Limitations**: Windows allows setting GPU preferences for individual processes, but this preference is immutable for the lifetime of the process. Since **Sunshine** is designed to run continuously:
-  - **GPU Switching**: After a few streams, the GPU may switch again, causing **Sunshine** to break until the service is restarted.
-  
-- **Complex Display Configurations**: In scenarios where the laptop display is managed by the iGPU and an external monitor (or dummy plug) is handled by the dGPU:
-  - **Display Configuration Challenges**: You must switch the display to the dGPU and restart **Sunshine** to apply the correct GPU preference.
-  - **Profile Reversion Risks**: Ensuring that the display profile doesn’t revert before **Sunshine** restarts is critical to maintaining streaming stability.
+- **GPU Mismatch:** If Sunshine is trying to capture from one GPU but encode using another, it can cause:
+  - **Black Screens:** No video output in your stream.
+  - **Error Messages:** Such as `Duplicate Output Failed`.
 
-### Root Cause Analysis
+- **Immutable GPU Preference:** Once Sunshine starts, it can't change which GPU it's using without restarting. Since laptops switch GPUs dynamically, Sunshine gets stuck using the wrong one.
 
-Approximately a year or two ago, efforts were made to mitigate these issues by introducing a **DXGI probe utility**. The core problem lies in how **DXGI** handles screen capturing:
+Suppose you have a laptop with an iGPU and decide to use a dummy plug or virtual display device configured to be always attached to the dGPU. This will cause problems because Sunshine will often pick the integrated graphics card, as the OS is designed to use the most efficient GPU by default (since it is a laptop).
 
-- **Single GPU Binding**: **DXGI** won’t allow screen capture if the display is connected to a different GPU than the one performing the encoding. This is problematic for setups with, for example, an Intel iGPU and an NVIDIA dGPU, where the system may default to using Intel’s QuickSync (iGPU) instead of the NVIDIA encoder (dGPU).
+**Impact:**
+1. Constant errors in Sunshine logs of it trying to probe a display repeatedly.
+2. On the off chance the stream does start, it will display a black screen with no video output.
 
-- **Process Lifetime Constraint**: Once a GPU preference is set for a process like **Sunshine**, it cannot be changed without restarting the process. Given that **Sunshine** is intended to run continuously, any dynamic GPU switching by the OS can lead to streaming failures.
+You may notice this issue occur more frequently after installing the Virtual Display Driver that forces itself on the dGPU. In the previous version, it would always pick the iGPU (much like Sunshine does right now) due to the reasons mentioned earlier.
 
-## Solution
+---
 
-To address these challenges, a combination of software patches, virtual display drivers, and automation scripts is required. This comprehensive approach ensures that **Sunshine** consistently utilizes the dGPU for streaming, thereby maintaining performance and preventing interruptions.
+## The Workaround Solution
+
+To fix these issues, we'll do the following:
+
+1. **Install a Fixed Version of Sunshine:** This version contains fixes to make Sunshine less likely to pick the iGPU.
+2. **Set Up a Virtual Display Driver:** This forces your laptop to always have a display connected directly to the dGPU.
+3. **Use MonitorSwapper Script:** This will temporarily disable the built-in display, which is attached to the iGPU, to swap over to the virtual display forced to be on the dGPU. Please make sure to use the one suggested in this guide, as it has extra code to ensure that the display does not revert while Sunshine is rebooting. If you have your own monitor swap script, it would likely swap displays again during the restart of Sunshine, which would break the script since your internal display is almost always attached to the iGPU.
+4. **Install this Script:** This script will monitor Sunshine every time you make a connection and, when it detects that the GPU preference needs to be changed, it will automate rebooting Sunshine on your behalf.
+
+**Important to Note:** The script **MUST** reboot Sunshine to work around the problem. This means every time this needs to be done, you will connect to your computer using Moonlight and get immediately kicked out back to the "Select a Host" screen. This is normal, meaning if you fail on the first connection attempt, you need to try again, and it should work without needing to restart Sunshine, unless it needs to swap displays again.
 
 ### Prerequisites
 
-- **Sunshine Streaming Software** installed and configured.
-- Administrative access to your Windows laptop.
-- Basic understanding of installing and running scripts.
+- **Sunshine** installed on your Windows laptop.
+- Administrator rights on your laptop.
+- Basic ability to install software and run scripts.
 
-### Step 1: Install Patched Sunshine Executable
+---
 
-The GPU preference prober in the 0.23.0 release of **Sunshine** may incorrectly select the iGPU instead of the dGPU. This issue has been addressed in [PR 3002](https://github.com/LizardByte/Sunshine/pull/3002) and is included in the pre-release versions of **Sunshine**. The official fix will be available in version 0.24, but until then, you need to install the pre-release version.
+## Step-by-Step Guide
 
-**Important:** Once you upgrade to the pre-release version, downgrading is not straightforward due to the introduction of new features.
+### **Step 1: Install the Fixed Version of Sunshine**
 
-**Action:**
+The standard version of Sunshine might choose the iGPU by mistake. A pre-release version fixes this.
 
-- **Download Pre-release Sunshine:**
-  - Visit the [Sunshine Pre-release Tags](https://github.com/LizardByte/Sunshine/tags) page.
-  - Download any tag starting with `v2024`, as these contain the necessary GPU preference fix.
+**What to Do:**
 
-### Step 2: Configure Virtual Display Driver
+1. **Download the Pre-release Version:**
+   - Go to the [Sunshine Pre-release Downloads](https://github.com/LizardByte/Sunshine/tags).
+   - Download a version starting with `v2024` (e.g., `v2024.0`).
 
-A virtual display ensures that the dGPU remains the primary GPU for streaming tasks, preventing the OS from switching to the iGPU.
+**Note:** Upgrading to this version adds new features that might make downgrading difficult later.
 
-1. **Download the Virtual Display Driver:**
+---
+
+### **Step 2: Install a Virtual Display Driver**
+
+This driver creates a fake display that keeps the dGPU active, preventing the system from switching back to the iGPU.
+
+**What to Do:**
+
+1. **Download the Driver:**
    - Visit the [Virtual Display Driver Releases](https://github.com/itsmikethetech/Virtual-Display-Driver/releases/tag/24.9.11).
-   - Download the special version of `IDDSampleDriver` configured to always attach to the dGPU.
+   - Download the special version named `IDDSampleDriver`.
 
 2. **Install the Driver:**
-   - Follow the installation instructions provided in the repository.
-   - Ensure the virtual display is correctly set up and recognized by your system.
+   - Follow the instructions provided on the download page.
+   - After installation, check your display settings to ensure the virtual display is recognized.
 
-3. **Remove Adapter and Monitor Configuration from Sunshine:**
-   - Open the Sunshine Web UI and navigate to `Configuration > Audio/Video`.
-   - Ensure that both the **Output Name** and **Adapter Name** fields are left blank. If these fields are populated, the automation script will not function correctly.
+3. **Adjust Sunshine Settings: (VERY IMPORTANT!)**
+   - Open Sunshine's Web UI.
+   - Go to `Configuration > Audio/Video`.
+   - Make sure **Output Name** and **Adapter Name** are both **blank**.
 
-### Step 3: Set Up Monitor Swap Automation
+---
 
-Automating the monitor swap ensures that your display remains consistently connected to the dGPU, preventing the OS from reverting to the iGPU.
+### **Step 3: Set Up Monitor Swap Automation (IMPORTANT!)**
 
-1. **Download Monitor Swap Automation:**
-   - Visit the [Monitor Swap Automation Releases](https://github.com/Nonary/MonitorSwapAutomation/releases/latest) page.
-   - Download the latest release.
+This script will automate temporarily disabling the internal display to force the virtual display, which is guaranteed to be on the dGPU. 
+
+The reason you need to use this specific script to handle the display swaps is that it has been modified to allow Sunshine to restart without immediately reverting back to your original display. This is important because Sunshine needs to reboot with the other display active to properly pick the dGPU.
+
+**What to Do:**
+
+1. **Download the Automation Script:**
+   - Go to the [Monitor Swap Automation Releases](https://github.com/Nonary/MonitorSwapAutomation/releases/latest).
+   - Download the latest version.
 
 2. **Install and Configure:**
-   - Follow the installation guide provided in the repository.
-   - Configure the automation tool to swap the display to the virtual display as needed, ensuring the dGPU remains active for streaming.
+   - Follow the installation instructions provided.
+   - Configure the script to switch to the virtual display when necessary.
 
-### Step 4: Install GPU Preference Script
+---
 
-This script monitors **Sunshine** and restarts it if the GPU preference changes, maintaining a stable streaming environment.
+### **Step 4: Install this Script**
 
-1. **Download the Script from Releases:**
-   - Visit the [GPU Preference Script Releases](https://github.com/Nonary/DuplicateOutputFailFix/releases/latest) page.
-   - Download the latest release.
+This script monitors Sunshine and restarts it if it starts using the wrong GPU.
+
+**What to Do:**
+
+1. **Download the Script:**
+   - Visit the [Releases](https://github.com/Nonary/DuplicateOutputFailFix/releases/latest).
+   - Download the latest version.
 
 2. **Configure the Script:**
-   - If **Sunshine** is installed in a non-default directory, update the `settings.json` file accordingly before installation.
-   
+   - If Sunshine isn't installed in the default location, edit the `settings.json` file to point to the correct path.
+
 3. **Install the Script:**
-   - Run `install.bat` by double-clicking it to install the script. Ensure you have administrative privileges during installation.
+   - Run `install.bat` (double-click it).
+   - Allow any administrative permissions it requests.
 
-## How It Works
+---
 
-1. **Hybrid GPU Monitoring:**
-   - The GPU preference script continuously monitors the GPU preferences assigned to **Sunshine**.
+## How This Solution Works
 
-2. **Detect GPU Changes:**
-   - If the laptop's GPU switches from the dGPU to the iGPU (or vice versa), the script detects this change.
+- **Virtual Display Driver:** Keeps the dGPU active by simulating a display connected to it.
+- **Monitor Swap Automation:** Ensures your laptop uses the dGPU for the main display.
+- **This Script:** Automates rebooting Sunshine with the correct display to ensure it picks the dGPU when needed.
 
-3. **Restart Sunshine:**
-   - Upon detecting a GPU preference change, the script automatically restarts **Sunshine**.
-   - This action re-applies the correct GPU preference, ensuring **Sunshine** consistently uses the dGPU for streaming.
-
-4. **Seamless Streaming:**
-   - The combination of the virtual display driver and monitor swap automation ensures that the dGPU remains the primary GPU for streaming tasks.
-   - This setup minimizes disruptions, preventing issues like black screens and `Duplicate Output Failed` errors.
+---
 
 ## Important Notes
 
-- **Stream Interruption:**
-  - Restarting **Sunshine** will cause your current stream to end momentarily. This is necessary to re-establish the correct GPU preference.
+- **Stream Interruptions:** By design, this script reboots Sunshine when necessary. This means you will experience the first connection attempt immediately kicking you out.
+- **Startup Delays:** The startup delay for a stream will be significantly impacted if you haven't installed the monitor swap before; it will be about 5-8 seconds slower.
+- **Future Updates:** Upcoming features in Sunshine, such as the built-in monitor swap, will not work with this workaround. You must continue to use the monitor swap script.
+- **Configuration Reminder:** Ensure that **Output Name** and **Adapter Name** in Sunshine's settings are blank.
 
-- **Delay in Stream Start:**
-  - There may be a slight delay when starting a new stream as the script ensures the correct GPU is in use.
-
-- **Compatibility Considerations:**
-  - The upcoming built-in monitor profile restoration feature in **Sunshine** may conflict with this script, as it could revert display profiles that the script relies on.
-
-- **Ensure Proper Configuration:**
-  - Double-check that both the **Output Name** and **Adapter Name** fields in the Sunshine Web UI are left blank to allow the script to function correctly.
+---
 
 ## Troubleshooting
 
-- **Stream Not Starting:**
-  - Verify that the virtual display driver is correctly installed.
-  - Ensure that the monitor swap automation is functioning as expected.
+- **Stream Isn't Starting:**
+  - Verify the virtual display driver is installed correctly.
+  - Check that the monitor swap automation is working.
 
-- **Script Not Restarting Sunshine:**
-  - Confirm that the script has the necessary administrative permissions.
-  - Check the script’s log directory for detailed error messages or issues.
+- **Script Isn't Restarting Sunshine:**
+  - Ensure the script has administrative permissions.
+  - Look at the script's log files for errors (usually in the same folder as the script).
 
-- **Duplicate Output Errors Persist** or **iGPU is Still Selected:**
-  - Revisit all steps in this guide to ensure none were missed, particularly the removal of monitor configurations in Sunshine.
-  - Ensure that the [Monitor Swap Automation Script](https://github.com/Nonary/MonitorSwapAutomation/releases/latest) is correctly set up, guaranteeing that your laptop maintains a display connected directly to the dGPU.
+- **Still Seeing Errors or iGPU is Used:**
+  - Double-check all steps, especially ensuring Sunshine's settings are correct.
+  - Ensure the monitor swap automation is properly set up.
 
-## Additional Insights
+---
 
-### Background on the Issue
+## Additional Information
 
-Efforts to resolve these GPU switching issues initially focused on adding a **DXGI probe utility** to **Sunshine**. However, due to the inherent limitations of **DXGI** and the complexities of hybrid GPU management, a more robust solution involving external scripts and drivers was necessary.
+### Why This Issue Happens
 
-### Future Developments
+Sunshine uses DXGI for screen capture, which can't handle situations where the display and the encoding GPU are different. Since laptops with hybrid GPUs switch between the iGPU and dGPU, Sunshine can end up using the wrong GPU, causing errors.
 
-The ideal fix would involve significant modifications to **Sunshine’s** architecture, such as running each streaming session in its own process. This approach would allow dynamic setting of GPU preferences as the laptop switches between iGPU and dGPU. However, this requires advanced development expertise and is beyond the current scope.
+### Future Solutions
 
-In the meantime, the provided workaround offers a practical solution for laptop users, ensuring reliable streaming performance by enforcing the use of the dedicated GPU.
-
+Ideally, Sunshine would need to be redesigned to handle GPU preferences dynamically, possibly by separating the capturing and encoding into different processes. However, this would be a very challenging task because the code for Sunshine is not very modular and would require low-level programming features such as shared memory. It is unlikely to be fixed in the next year or two. This script is a workaround to get it to work for now while Sunshine eventually fixes the issue on its own.

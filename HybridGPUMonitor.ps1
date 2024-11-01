@@ -163,7 +163,7 @@ function Get-CurrentGpuPreference {
         Write-Host "Running ddprobe.exe with index $i..."
     
         # Capture the output and errors from ddprobe.exe
-        $ddprobeOutput = & "$ddprobePath" $i 2>&1
+        $ddprobeOutput = & "$ddprobePath" $i --verify-frame-capture 2>&1
         $exitCode = $LASTEXITCODE
     
         # Log the output for debugging
