@@ -107,6 +107,11 @@ The reason you need to use this specific script to handle the display swaps is t
    - Follow the installation instructions provided.
    - Configure the script to switch to the virtual display when necessary.
 
+3. (Important) **Configure primary profile for extended mode**:
+   - In order to force a hybrid GPU system into using the dedicated GPU on the desktop you need to set up your primary.cfg file to leave both monitors active.
+   - Do not "zero out" the dummy display on primary.cfg, instead make sure it has values configured for it.
+   - This will force the desktop to always be attached to GPU going forward.
+
 ---
 
 ### **Step 4: Install this Script**
